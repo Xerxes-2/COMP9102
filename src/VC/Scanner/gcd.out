@@ -1,0 +1,3 @@
+======= The VC compiler =======
+ERROR: 1(1)..1(3): "void" expected here
+Compilation was unsuccessful.

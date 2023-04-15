@@ -1,0 +1,4 @@
+======= The VC compiler =======
+ERROR: 4(1)..4(1): : unterminated comment
+ERROR: 5(1)..5(1): "void" expected here
+Compilation was unsuccessful.

@@ -31,10 +31,10 @@ void bubbleSort(int a[], int n)
       /* Notice that the values in positions LIMIT+1 .. N are in
        * their final position, i.e. they are sorted right */
 	if (a[lcv]>a[lcv+1]) {
-	  temp = a[lcv];
-	  a[lcv] = a[lcv+1];
-	  a[lcv+1] = temp;
-	  lastChange = lcv;
+    temp = a[lcv];
+    a[lcv] = a[lcv+1];
+    a[lcv+1] = temp;
+    lastChange = lcv;
 	}
     limit = lastChange;
   }

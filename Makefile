@@ -71,6 +71,7 @@ emmiter: compile
 		n=$${b#$$p}; \
 		java -cp ~/cs3131/target VC.vc $$n.vc; \
 		diff $$n.j $$n.sol; \
+		jasmin -d ~/cs3131/target $$n.j; \
 	done
 
 .PHONY: compile

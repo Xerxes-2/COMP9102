@@ -135,6 +135,15 @@ public final class JVM {
       SIPUSH = "sipush",
       LDC = "ldc",
 
+      // array instructions
+      NEWARRAY = "newarray",
+      BALOAD = "baload",
+      BASTORE = "bastore",
+      IALOAD = "iaload",
+      IASTORE = "iastore",
+      FALOAD = "faload",
+      FASTORE = "fastore",
+
       // Method invocation and return instructions
 
       INVOKESTATIC = "invokestatic",

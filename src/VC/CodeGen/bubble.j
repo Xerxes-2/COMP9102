@@ -31,21 +31,22 @@ L0:
 L2:
 	iload_3
 	iload_2
-	if_icmplt L4
+	if_icmplt L5
 	iconst_0
-	goto L5
-L4:
-	iconst_1
+	goto L6
 L5:
-	ifeq L3
+	iconst_1
 L6:
+	ifeq L3
+L7:
 	aload_1
 	iload_3
 	iaload
 	invokestatic VC/lang/System.putInt(I)V
 	ldc " "
 	invokestatic VC/lang/System/putString(Ljava/lang/String;)V
-L7:
+L8:
+L4:
 	iload_3
 	iconst_1
 	iadd
@@ -94,12 +95,12 @@ L6:
 L8:
 	iload_3
 	iload 4
-	if_icmplt L10
+	if_icmplt L11
 	iconst_0
-	goto L11
-L10:
-	iconst_1
+	goto L12
 L11:
+	iconst_1
+L12:
 	ifeq L9
 	aload_1
 	iload_3
@@ -109,14 +110,14 @@ L11:
 	iconst_1
 	iadd
 	iaload
-	if_icmpgt L14
+	if_icmpgt L15
 	iconst_0
-	goto L15
-L14:
-	iconst_1
+	goto L16
 L15:
-	ifeq L12
+	iconst_1
 L16:
+	ifeq L13
+L17:
 	aload_1
 	iload_3
 	iaload
@@ -137,10 +138,11 @@ L16:
 	iastore
 	iload_3
 	istore 6
-L17:
-	goto L13
-L12:
+L18:
+	goto L14
 L13:
+L14:
+L10:
 	iload_3
 	iconst_1
 	iadd

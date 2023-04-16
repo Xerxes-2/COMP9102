@@ -32,11 +32,11 @@ public final class Emitter implements Visitor {
         this.inputFilename = inputFilename;
         errorReporter = reporter;
 
-        int i = inputFilename.lastIndexOf('.');
+        int i = this.inputFilename.lastIndexOf('.');
         if (i > 0)
-            classname = inputFilename.substring(0, i);
+            classname = this.inputFilename.substring(0, i);
         else
-            classname = inputFilename;
+            classname = this.inputFilename;
 
         int j = classname.lastIndexOf(java.io.File.separatorChar);
         if (j > 0)
@@ -96,16 +96,7 @@ public final class Emitter implements Visitor {
                 if (!vAST.E.isEmptyExpr()) {
                     vAST.E.visit(this, frame);
                 } else {
-                    if (vAST.T.equals(StdEnvironment.floatType))
-                        emit(JVM.FCONST_0);
-                    else if (vAST.T.equals(StdEnvironment.intType))
-                        emit(JVM.ICONST_0);
-                    else if (vAST.T.equals(StdEnvironment.booleanType))
-                        emitBCONST(false);
-                    else {
-                        ArrayType at = (ArrayType) vAST.T;
-                        emitNEWARRAY(at, frame);
-                    }
+                    emitDefaultInit(vAST, frame);
                     frame.push();
                 }
                 emitPUTSTATIC(VCtoJavaType(vAST.T), vAST.I.spelling);
@@ -160,10 +151,10 @@ public final class Emitter implements Visitor {
         emit(scopeStart + ":");
         if (ast.parent instanceof FuncDecl) {
             if (((FuncDecl) ast.parent).I.spelling.equals("main")) {
-                emit(JVM.VAR, "0 is argv [Ljava/lang/String; from " + (String) frame.scopeStart.peek() + " to "
-                        + (String) frame.scopeEnd.peek());
-                emit(JVM.VAR, "1 is vc$ L" + classname + "; from " + (String) frame.scopeStart.peek() + " to "
-                        + (String) frame.scopeEnd.peek());
+                emit(JVM.VAR, "0 is argv [Ljava/lang/String; from " + frame.scopeStart.peek() + " to "
+                        + frame.scopeEnd.peek());
+                emit(JVM.VAR, "1 is vc$ L" + classname + "; from " + frame.scopeStart.peek() + " to "
+                        + frame.scopeEnd.peek());
                 // Generate code for the initialiser vc$ = new classname();
                 emit(JVM.NEW, classname);
                 emit(JVM.DUP);
@@ -173,8 +164,8 @@ public final class Emitter implements Visitor {
                 emit(JVM.ASTORE_1);
                 frame.pop();
             } else {
-                emit(JVM.VAR, "0 is this L" + classname + "; from " + (String) frame.scopeStart.peek() + " to "
-                        + (String) frame.scopeEnd.peek());
+                emit(JVM.VAR, "0 is this L" + classname + "; from " + frame.scopeStart.peek() + " to "
+                        + frame.scopeEnd.peek());
                 ((FuncDecl) ast.parent).PL.visit(this, o);
             }
         }
@@ -291,6 +282,7 @@ public final class Emitter implements Visitor {
 
         String loopStart = frame.getNewLabel();
         String loopEnd = frame.getNewLabel();
+        String loopContinue = frame.getNewLabel();
 
         emit(loopStart + ":");
         ast.E2.visit(this, o);
@@ -301,14 +293,16 @@ public final class Emitter implements Visitor {
         emit(JVM.IFEQ, loopEnd);
         frame.pop();
 
-        int stackSize3 = frame.getCurStackSize();
-        emitMultiPOP(stackSize3, frame);
-
-        frame.conStack.push(loopStart);
+        frame.conStack.push(loopContinue);
         frame.brkStack.push(loopEnd);
 
         ast.S.visit(this, o);
+
+        emit(loopContinue + ":");
+        int stackSize3 = frame.getCurStackSize();
         ast.E3.visit(this, o);
+        emitMultiPOP(stackSize3, frame);
+
         emit(JVM.GOTO, loopStart);
         emit(loopEnd + ":");
 
@@ -335,41 +329,25 @@ public final class Emitter implements Visitor {
     public Object visitAssignExpr(AssignExpr ast, Object o) {
         Frame frame = (Frame) o;
 
-        // int stackSize1 = frame.getCurStackSize();
-        // ast.E1.visit(this, o);
-        // emitMultiPOP(stackSize1, frame);
-        String arrayType = "";
         if (ast.E1 instanceof ArrayExpr) {
             ArrayExpr ae = (ArrayExpr) ast.E1;
-            arrayType = VCtoJavaType((Type) ae.V.visit(this, o));
+            ae.V.visit(this, o);
             ae.E.visit(this, o);
         }
 
         ast.E2.visit(this, o);
 
         if (ast.parent instanceof AssignExpr) {
-            emit(JVM.DUP);
+            if (ast.E1 instanceof ArrayExpr) {
+                emit(JVM.DUP_X2);
+            } else {
+                emit(JVM.DUP);
+            }
             frame.push();
         }
 
         if (ast.E1 instanceof ArrayExpr) {
-            switch (arrayType) {
-                case "[I":
-                    emit(JVM.IASTORE);
-                    frame.pop(3);
-                    break;
-                case "[F":
-                    emit(JVM.FASTORE);
-                    frame.pop(3);
-                    break;
-                case "[Z":
-                    emit(JVM.BASTORE);
-                    frame.pop(3);
-                    break;
-                default:
-                    errorReporter.reportError("Array type not supported", "", ast.position);
-                    break;
-            }
+            emitArraySTORE(ast.E2, frame);
         } else {
             VarExpr varExpr = (VarExpr) ast.E1;
             SimpleVar v = (SimpleVar) varExpr.V;
@@ -491,6 +469,10 @@ public final class Emitter implements Visitor {
         ast.E2.visit(this, o);
         switch (ast.O.spelling) {
             case "i&&":
+                emit(JVM.IAND);
+                frame.pop(2);
+                frame.push();
+                break;
             case "i*":
                 emit(JVM.IMUL);
                 frame.pop(2);
@@ -542,7 +524,7 @@ public final class Emitter implements Visitor {
             case "i>=":
             case "i==":
             case "i!=":
-                emitIF_ICMPCOND(ast.O.spelling, frame);
+                emitICMP(ast.O.spelling, frame);
                 break;
             case "f<":
             case "f<=":
@@ -587,6 +569,7 @@ public final class Emitter implements Visitor {
                 break;
             case "f+":
             case "i+":
+                break;
             default:
                 errorReporter.reportError("*** Error: invalid unary operator", "", ast.position);
                 break;
@@ -615,25 +598,24 @@ public final class Emitter implements Visitor {
         ArrayType at = (ArrayType) ast.V.visit(this, o);
         String it = VCtoJavaType(at.T);
         ast.E.visit(this, o);
+        String inst = "";
         switch (it) {
             case "I":
-                emit(JVM.IALOAD);
-                frame.pop(2);
-                frame.push();
+                inst = JVM.IALOAD;
                 break;
             case "F":
-                emit(JVM.FALOAD);
-                frame.pop(2);
-                frame.push();
+                inst = JVM.FALOAD;
                 break;
             case "Z":
-                emit(JVM.BALOAD);
-                frame.pop(2);
-                frame.push();
+                inst = JVM.BALOAD;
                 break;
             default:
                 errorReporter.reportError("ArrayExpr: invalid array type", "", ast.position);
-                break;
+        }
+        if (!inst.equals("")) {
+            emit(inst);
+            frame.pop(2);
+            frame.push();
         }
         return null;
     }
@@ -649,24 +631,8 @@ public final class Emitter implements Visitor {
 
         ast.E.visit(this, o);
 
-        String it = VCtoJavaType(ast.E.type);
-        switch (it) {
-            case "I":
-                emit(JVM.IASTORE);
-                frame.pop(3);
-                break;
-            case "F":
-                emit(JVM.FASTORE);
-                frame.pop(3);
-                break;
-            case "Z":
-                emit(JVM.BASTORE);
-                frame.pop(3);
-                break;
-            default:
-                errorReporter.reportError("ArrayExprList: invalid array type", "", ast.position);
-                break;
-        }
+        emitArraySTORE(ast.E, frame);
+
         arrayIndex++;
         ast.EL.visit(this, o);
         return null;
@@ -795,8 +761,8 @@ public final class Emitter implements Visitor {
         ast.index = frame.getNewIndex();
         String T = VCtoJavaType(ast.T);
 
-        emit(JVM.VAR + " " + ast.index + " is " + ast.I.spelling + " " + T + " from " + (String) frame.scopeStart.peek()
-                + " to " + (String) frame.scopeEnd.peek());
+        emit(JVM.VAR + " " + ast.index + " is " + ast.I.spelling + " " + T + " from " + frame.scopeStart.peek()
+                + " to " + frame.scopeEnd.peek());
 
         if (!ast.E.isEmptyExpr()) {
             ast.E.visit(this, o);
@@ -833,10 +799,10 @@ public final class Emitter implements Visitor {
     public Object visitParaDecl(ParaDecl ast, Object o) {
         Frame frame = (Frame) o;
         ast.index = frame.getNewIndex();
-        String T = VCtoJavaType(ast.T);
+        String type = VCtoJavaType(ast.T);
 
-        emit(JVM.VAR + " " + ast.index + " is " + ast.I.spelling + " " + T + " from " + (String) frame.scopeStart.peek()
-                + " to " + (String) frame.scopeEnd.peek());
+        emit(JVM.VAR + " " + ast.index + " is " + ast.I.spelling + " " + type + " from " + frame.scopeStart.peek()
+                + " to " + frame.scopeEnd.peek());
         return null;
     }
 
@@ -992,28 +958,51 @@ public final class Emitter implements Visitor {
         emit(s1 + " " + s2 + " " + s3);
     }
 
+    private void emitDefaultInit(GlobalVarDecl gVar, Frame frame) {
+        if (gVar.T.equals(StdEnvironment.floatType))
+            emit(JVM.FCONST_0);
+        else if (gVar.T.equals(StdEnvironment.intType))
+            emit(JVM.ICONST_0);
+        else if (gVar.T.equals(StdEnvironment.booleanType))
+            emitBCONST(false);
+        else {
+            ArrayType at = (ArrayType) gVar.T;
+            emitNEWARRAY(at, frame);
+        }
+    }
+
+    private void emitArraySTORE(Expr e, Frame frame) {
+        String inst = "";
+        if (e.type.equals(StdEnvironment.floatType))
+            inst = JVM.FASTORE;
+        else if (e.type.equals(StdEnvironment.intType))
+            inst = JVM.IASTORE;
+        else if (e.type.equals(StdEnvironment.booleanType))
+            inst = JVM.BASTORE;
+        emit(inst);
+        frame.pop(3);
+    }
+
     private void emitNEWARRAY(ArrayType at, Frame frame) {
         String it = VCtoJavaType(at.T);
         at.E.visit(this, frame);
+        String instIT = "";
         switch (it) {
             case "I":
-                emit(JVM.NEWARRAY, "int");
-                frame.push();
-                frame.pop(2);
+                instIT = "int";
                 break;
             case "F":
-                emit(JVM.NEWARRAY, "float");
-                frame.push();
-                frame.pop(2);
+                instIT = "float";
                 break;
             case "Z":
-                emit(JVM.NEWARRAY, "boolean");
-                frame.push();
-                frame.pop(2);
+                instIT = "boolean";
                 break;
             default:
                 errorReporter.reportError("*** Error: invalid array type", "", at.position);
-                break;
+        }
+        if (!instIT.equals("")) {
+            emit(JVM.NEWARRAY, instIT);
+            frame.pop();
         }
     }
 
@@ -1025,7 +1014,7 @@ public final class Emitter implements Visitor {
             frame.pop(newStackSize - oldStackSize);
     }
 
-    private void emitIF_ICMPCOND(String op, Frame frame) {
+    private void emitICMP(String op, Frame frame) {
         String opcode;
 
         if (op.equals("i!="))

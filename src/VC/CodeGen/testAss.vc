@@ -1,0 +1,11 @@
+int main(){
+    int a[2];
+    int b;
+    b = a[1] = a[0] = 1;
+    putInt(b);
+    putLn();
+    putInt(a[0]);
+    putLn();
+    putInt(a[1]);
+    putLn();
+}

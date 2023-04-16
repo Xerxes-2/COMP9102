@@ -178,7 +178,9 @@ public final class JVM {
       // Operand Stack management instructions
 
       DUP = "dup",
+      DUP_X2 = "dup_x2",
       POP = "pop",
+      POP2 = "pop2",
       NOP = "nop";
 
   // Limitations of the JVM

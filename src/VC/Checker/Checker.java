@@ -256,7 +256,7 @@ public final class Checker implements Visitor {
 
     idTable.closeScope();
 
-    if (o instanceof FuncDecl && !((FuncDecl) o).T.isVoidType() && !r)
+    if (o instanceof FuncDecl && !((FuncDecl) o).T.isVoidType() && !r && !isMainPresent)
       reporter.reportError(errMesg[31], "", ast.position);
 
     return r;
@@ -295,9 +295,7 @@ public final class Checker implements Visitor {
     idTable.openScope();
     ast.E1.visit(this, null);
     ast.E2.visit(this, null);
-    if (ast.E2.isEmptyExpr())
-      ast.E2 = new BooleanExpr(new BooleanLiteral("true", ast.E2.position), ast.E2.position);
-    else if (!ast.E2.type.isBooleanType())
+    if (!ast.E2.isEmptyExpr() && !ast.E2.type.isBooleanType())
       reporter.reportError(errMesg[21] + FOUND_STRING, ast.E2.type.toString(), ast.E2.position);
     ast.E3.visit(this, null);
     currentLoopDepth++;
@@ -339,7 +337,7 @@ public final class Checker implements Visitor {
   }
 
   public Object visitEmptyCompStmt(EmptyCompStmt ast, Object o) {
-    if (o instanceof FuncDecl && !((FuncDecl) o).T.isVoidType())
+    if (o instanceof FuncDecl && !((FuncDecl) o).T.isVoidType() && !isMainPresent)
       reporter.reportError(errMesg[31], "", ast.position);
 
     return false;

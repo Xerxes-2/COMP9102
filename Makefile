@@ -2,6 +2,7 @@ SCANNER_VC := $(wildcard src/VC/Scanner/*.vc)
 RECOGNISER_VC := $(wildcard src/VC/Recogniser/*.vc)
 PARSER_VC := $(wildcard src/VC/Parser/*.vc)
 CHECKER_VC := $(wildcard src/VC/Checker/*.vc)
+EMMITER_VC := $(wildcard src/VC/CodeGen/*.vc)
 SHELL=/usr/bin/bash
 
 # sources
@@ -59,6 +60,17 @@ checker: compile
 		b=$${i%.vc};  \
 		java -cp target VC.vc $$i > $$b.out; \
 		diff $$b.out $$b.sol; \
+	done
+
+emmiter: compile
+	p=src/VC/CodeGen/; \
+	cd $$p; \
+	for i in ${EMMITER_VC}; do \
+		echo "============Checking $$i============"; \
+		b=$${i%.vc};  \
+		n=$${b#$$p}; \
+		java -cp ~/cs3131/target VC.vc $$n.vc; \
+		diff $$n.j $$n.sol; \
 	done
 
 .PHONY: compile

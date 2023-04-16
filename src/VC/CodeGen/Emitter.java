@@ -37,8 +37,10 @@ public final class Emitter implements Visitor {
         else
             classname = inputFilename;
 
+        int j = classname.lastIndexOf(java.io.File.separatorChar);
+        if (j > 0)
+            classname = classname.substring(j + 1);
     }
-
     // PRE: ast must be a Program node
 
     public final void gen(AST ast) {
@@ -113,9 +115,9 @@ public final class Emitter implements Visitor {
         emit("; set limits used by this method");
         emit(JVM.LIMIT, "locals", frame.getNewIndex());
 
-        // emit(JVM.LIMIT, "stack", frame.getMaximumStackSize());
+        emit(JVM.LIMIT, "stack", frame.getMaximumStackSize());
         // changed by the marker
-        emit(JVM.LIMIT, "stack", 50);
+        // emit(JVM.LIMIT, "stack", 50);
 
         emit(JVM.RETURN);
         emit(JVM.METHOD_END, "method");
@@ -194,11 +196,123 @@ public final class Emitter implements Visitor {
 
         if (frame.isMain()) {
             emit(JVM.RETURN);
-            return null;
+        } else {
+            AST parent = ast.parent;
+            while (!(parent instanceof FuncDecl)) {
+                parent = parent.parent;
+            }
+            FuncDecl fd = (FuncDecl) parent;
+            ast.E.visit(this, o);
+            if (fd.T.equals(StdEnvironment.intType) || fd.T.equals(StdEnvironment.booleanType)) {
+                emit(JVM.IRETURN);
+                frame.pop();
+            } else if (fd.T.equals(StdEnvironment.floatType)) {
+                emit(JVM.FRETURN);
+                frame.pop();
+            } else if (fd.T.equals(StdEnvironment.voidType)) {
+                emit(JVM.RETURN);
+            }
         }
+        return null;
+    }
 
-        // Your other code goes here
+    public Object visitWhileStmt(WhileStmt ast, Object o) {
+        Frame frame = (Frame) o;
 
+        String startLabel = frame.getNewLabel();
+        String endLabel = frame.getNewLabel();
+
+        emit(startLabel + ":");
+        ast.E.visit(this, o);
+        emit(JVM.IFEQ, endLabel);
+        frame.pop();
+
+        frame.conStack.push(startLabel);
+        frame.brkStack.push(endLabel);
+
+        ast.S.visit(this, o);
+        emit(JVM.GOTO, startLabel);
+        emit(endLabel + ":");
+
+        frame.conStack.pop();
+        frame.brkStack.pop();
+
+        return null;
+    }
+
+    public Object visitIfStmt(IfStmt ast, Object o) {
+        Frame frame = (Frame) o;
+        
+        String elseLabel = frame.getNewLabel();
+        String endLabel = frame.getNewLabel();
+        
+        ast.E.visit(this, o);
+
+        emit(JVM.IFEQ, elseLabel);
+        frame.pop();
+        ast.S1.visit(this, o);
+        emit(JVM.GOTO, endLabel);
+        emit(elseLabel + ":");
+        ast.S2.visit(this, o);
+        emit(endLabel + ":");
+
+        return null;
+    }
+
+    public Object visitExprStmt(ExprStmt ast, Object o) {
+        Frame frame = (Frame) o;
+        int stackSize1 = frame.getCurStackSize();
+        ast.E.visit(this, o);
+        emitMultiPOP(stackSize1, frame);
+        return null;
+    }
+
+    public Object visitBreakStmt(BreakStmt ast, Object o) {
+        Frame frame = (Frame) o;
+        emit(JVM.GOTO, frame.brkStack.peek());
+        return null;
+    }
+
+    public Object visitContinueStmt(ContinueStmt ast, Object o) {
+        Frame frame = (Frame) o;
+        emit(JVM.GOTO, frame.conStack.peek());
+        return null;
+    }
+
+    public Object visitForStmt(ForStmt ast, Object o) {
+        Frame frame = (Frame) o;
+
+        int stackSize1 = frame.getCurStackSize();
+        ast.E1.visit(this, o);
+        emitMultiPOP(stackSize1, frame);
+
+        String loopStart = frame.getNewLabel();
+        String loopEnd = frame.getNewLabel();
+
+        emit(loopStart + ":");
+        ast.E2.visit(this, o);
+        if (ast.E2.isEmptyExpr()) {
+            emit(JVM.ICONST_1);
+            frame.push();
+        }
+        emit(JVM.IFEQ, loopEnd);
+        frame.pop();
+
+        int stackSize3 = frame.getCurStackSize();
+        ast.E3.visit(this, o);
+        emitMultiPOP(stackSize3, frame);
+
+        frame.conStack.push(loopStart);
+        frame.brkStack.push(loopEnd);
+
+        ast.S.visit(this, o);
+        emit(JVM.GOTO, loopStart);
+        emit(loopEnd + ":");
+
+        frame.conStack.pop();
+        frame.brkStack.pop();
+
+        return null;
     }
 
     public Object visitEmptyStmtList(EmptyStmtList ast, Object o) {
@@ -213,9 +327,33 @@ public final class Emitter implements Visitor {
         return null;
     }
 
-    // Expressions
+    // #region Expressions
 
     public Object visitAssignExpr(AssignExpr ast, Object o) {
+        Frame frame = (Frame) o;
+        ast.E2.visit(this, o);
+        if (ast.parent instanceof AssignExpr) {
+            emit(JVM.DUP);
+            frame.push();
+        }
+        if (ast.E1 instanceof ArrayExpr) {
+            // TODO: handle array assignment
+        } else {
+            VarExpr varExpr = (VarExpr) ast.E1;
+            SimpleVar v = (SimpleVar) varExpr.V;
+            if (v.I.decl instanceof GlobalVarDecl) {
+                GlobalVarDecl g = (GlobalVarDecl) v.I.decl;
+                String type = VCtoJavaType(g.T);
+                emitPUTSTATIC(type, v.I.spelling);
+                frame.pop();
+            } else if (ast.E1.type.isFloatType()) {
+                emitFSTORE(v.I);
+                frame.pop();
+            } else {
+                emitISTORE(v.I);
+                frame.pop();
+            }
+        }
         return null;
     }
 
@@ -223,98 +361,210 @@ public final class Emitter implements Visitor {
         Frame frame = (Frame) o;
         String fname = ast.I.spelling;
 
-        if (fname.equals("getInt")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System.getInt()I");
-            frame.push();
-        } else if (fname.equals("putInt")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System.putInt(I)V");
-            frame.pop();
-        } else if (fname.equals("putIntLn")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putIntLn(I)V");
-            frame.pop();
-        } else if (fname.equals("getFloat")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/getFloat()F");
-            frame.push();
-        } else if (fname.equals("putFloat")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putFloat(F)V");
-            frame.pop();
-        } else if (fname.equals("putFloatLn")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putFloatLn(F)V");
-            frame.pop();
-        } else if (fname.equals("putBool")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putBool(Z)V");
-            frame.pop();
-        } else if (fname.equals("putBoolLn")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putBoolLn(Z)V");
-            frame.pop();
-        } else if (fname.equals("putString")) {
-            ast.AL.visit(this, o);
-            emit(JVM.INVOKESTATIC, "VC/lang/System/putString(Ljava/lang/String;)V");
-            frame.pop();
-        } else if (fname.equals("putStringLn")) {
-            ast.AL.visit(this, o);
-            emit(JVM.INVOKESTATIC, "VC/lang/System/putStringLn(Ljava/lang/String;)V");
-            frame.pop();
-        } else if (fname.equals("putLn")) {
-            ast.AL.visit(this, o); // push args (if any) into the op stack
-            emit("invokestatic VC/lang/System/putLn()V");
-        } else { // programmer-defined functions
-
-            FuncDecl fAST = (FuncDecl) ast.I.decl;
-
-            // all functions except main are assumed to be instance methods
-            if (frame.isMain())
-                emit("aload_1"); // vc.funcname(...)
-            else
-                emit("aload_0"); // this.funcname(...)
-            frame.push();
-
-            ast.AL.visit(this, o);
-
-            String retType = VCtoJavaType(fAST.T);
-
-            // The types of the parameters of the called function are not
-            // directly available in the FuncDecl node but can be gathered
-            // by traversing its field PL.
-
-            StringBuffer argsTypes = new StringBuffer("");
-            List fpl = fAST.PL;
-            while (!fpl.isEmpty()) {
-                if (((ParaList) fpl).P.T.equals(StdEnvironment.booleanType))
-                    argsTypes.append("Z");
-                else if (((ParaList) fpl).P.T.equals(StdEnvironment.intType))
-                    argsTypes.append("I");
-                else
-                    argsTypes.append("F");
-                fpl = ((ParaList) fpl).PL;
-            }
-
-            emit("invokevirtual", classname + "/" + fname + "(" + argsTypes + ")" + retType);
-            frame.pop(argsTypes.length() + 1);
-
-            if (!retType.equals("V"))
+        switch (fname) {
+            case "getInt":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System.getInt()I");
                 frame.push();
+                break;
+            case "putInt":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System.putInt(I)V");
+                frame.pop();
+                break;
+            case "putIntLn":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putIntLn(I)V");
+                frame.pop();
+                break;
+            case "getFloat":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/getFloat()F");
+                frame.push();
+                break;
+            case "putFloat":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putFloat(F)V");
+                frame.pop();
+                break;
+            case "putFloatLn":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putFloatLn(F)V");
+                frame.pop();
+                break;
+            case "putBool":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putBool(Z)V");
+                frame.pop();
+                break;
+            case "putBoolLn":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putBoolLn(Z)V");
+                frame.pop();
+                break;
+            case "putString":
+                ast.AL.visit(this, o);
+                emit(JVM.INVOKESTATIC, "VC/lang/System/putString(Ljava/lang/String;)V");
+                frame.pop();
+                break;
+            case "putStringLn":
+                ast.AL.visit(this, o);
+                emit(JVM.INVOKESTATIC, "VC/lang/System/putStringLn(Ljava/lang/String;)V");
+                frame.pop();
+                break;
+            case "putLn":
+                ast.AL.visit(this, o); // push args (if any) into the op stack
+                emit("invokestatic VC/lang/System/putLn()V");
+                frame.pop();
+                break;
+            default: // programmer-defined functions
+                FuncDecl fAST = (FuncDecl) ast.I.decl;
+
+                // all functions except main are assumed to be instance methods
+                if (frame.isMain())
+                    emit("aload_1"); // vc.funcname(...)
+                else
+                    emit("aload_0"); // this.funcname(...)
+                frame.push();
+
+                ast.AL.visit(this, o);
+
+                String retType = VCtoJavaType(fAST.T);
+
+                // The types of the parameters of the called function are not
+                // directly available in the FuncDecl node but can be gathered
+                // by traversing its field PL.
+
+                StringBuffer argsTypes = new StringBuffer("");
+                List fpl = fAST.PL;
+                while (!fpl.isEmpty()) {
+                    if (((ParaList) fpl).P.T.equals(StdEnvironment.booleanType))
+                        argsTypes.append("Z");
+                    else if (((ParaList) fpl).P.T.equals(StdEnvironment.intType))
+                        argsTypes.append("I");
+                    else
+                        argsTypes.append("F");
+                    fpl = ((ParaList) fpl).PL;
+                }
+
+                emit("invokevirtual", classname + "/" + fname + "(" + argsTypes + ")" + retType);
+                frame.pop(argsTypes.length() + 1);
+
+                if (!retType.equals("V"))
+                    frame.push();
         }
         return null;
     }
 
     public Object visitBinaryExpr(BinaryExpr ast, Object o) {
+        Frame frame = (Frame) o;
+        ast.E1.visit(this, o);
+        ast.E2.visit(this, o);
+        switch (ast.O.spelling) {
+            case "i&&":
+            case "i*":
+                emit(JVM.IMUL);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "i||":
+                emit(JVM.IOR);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "i+":
+                emit(JVM.IADD);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "i-":
+                emit(JVM.ISUB);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "i/":
+                emit(JVM.IDIV);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "f+":
+                emit(JVM.FADD);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "f-":
+                emit(JVM.FSUB);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "f*":
+                emit(JVM.FMUL);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "f/":
+                emit(JVM.FDIV);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "i<":
+            case "i<=":
+            case "i>":
+            case "i>=":
+            case "i==":
+            case "i!=":
+                emitIF_ICMPCOND(ast.O.spelling, frame);
+                break;
+            case "f<":
+            case "f<=":
+            case "f>":
+            case "f>=":
+            case "f==":
+            case "f!=":
+                emitFCMP(ast.O.spelling, frame);
+                break;
+            default:
+                break;
+        }
         return null;
     }
 
     public Object visitUnaryExpr(UnaryExpr ast, Object o) {
+        Frame frame = (Frame) o;
+        ast.E.visit(this, o);
+        switch (ast.O.spelling) {
+            case "i2f":
+                emit(JVM.I2F);
+                frame.pop();
+                frame.push();
+                break;
+            case "i-":
+                emit(JVM.INEG);
+                frame.pop();
+                frame.push();
+                break;
+            case "f-":
+                emit(JVM.FNEG);
+                frame.pop();
+                frame.push();
+                break;
+            case "i!":
+                emit(JVM.ICONST_1);
+                frame.push();
+                emit(JVM.IXOR);
+                frame.pop(2);
+                frame.push();
+                break;
+            case "f+":
+            case "i+":
+            default:
+                break;
+        }
         return null;
     }
 
     public Object visitVarExpr(VarExpr ast, Object o) {
+        ast.V.visit(this, o);
         return null;
     }
 
@@ -323,6 +573,14 @@ public final class Emitter implements Visitor {
     }
 
     public Object visitArrayExpr(ArrayExpr ast, Object o) {
+        return null;
+    }
+
+    public Object visitArrayExprList(ArrayExprList ast, Object o) {
+        return null;
+    }
+
+    public Object visitEmptyArrayExprList(EmptyArrayExprList ast, Object o) {
         return null;
     }
 
@@ -349,7 +607,7 @@ public final class Emitter implements Visitor {
         ast.SL.visit(this, o);
         return null;
     }
-
+    // #endregion
     // Declarations
 
     public Object visitDeclList(DeclList ast, Object o) {
@@ -432,9 +690,9 @@ public final class Emitter implements Visitor {
         emit("; set limits used by this method");
         emit(JVM.LIMIT, "locals", frame.getNewIndex());
 
-        // emit(JVM.LIMIT, "stack", frame.getMaximumStackSize());
+        emit(JVM.LIMIT, "stack", frame.getMaximumStackSize());
         // changed by the marker
-        emit(JVM.LIMIT, "stack", 50);
+        // emit(JVM.LIMIT, "stack", 50);
         emit(".end method");
 
         return null;
@@ -508,6 +766,14 @@ public final class Emitter implements Visitor {
 
     // Types
 
+    public Object visitArrayType(ArrayType ast, Object o) {
+        return null;
+    }
+
+    public Object visitStringType(StringType ast, Object o) {
+        return null;
+    }
+
     public Object visitIntType(IntType ast, Object o) {
         return null;
     }
@@ -569,6 +835,27 @@ public final class Emitter implements Visitor {
     // Variables
 
     public Object visitSimpleVar(SimpleVar ast, Object o) {
+        Frame frame = (Frame) o;
+        Decl binding = (Decl) ast.I.decl;
+        String type = VCtoJavaType(binding.T);
+        int index;
+        if (binding instanceof GlobalVarDecl) {
+            emitGETSTATIC(type, binding.I.spelling);
+        } else {
+            if (binding instanceof LocalVarDecl) {
+                LocalVarDecl local = (LocalVarDecl) binding;
+                index = local.index;
+            } else {
+                ParaDecl para = (ParaDecl) binding;
+                index = para.index;
+            }
+            if (type.equals("F")) {
+                emitFLOAD(index);
+            } else {
+                emitILOAD(index);
+            }
+        }
+        frame.push();
         return null;
     }
 
@@ -599,6 +886,14 @@ public final class Emitter implements Visitor {
 
     private void emit(String s1, String s2, String s3) {
         emit(s1 + " " + s2 + " " + s3);
+    }
+
+    private void emitMultiPOP(int oldStackSize, Frame frame) {
+        int newStackSize = frame.getCurStackSize();
+        for (int i = newStackSize; i > oldStackSize; i--)
+            emit(JVM.POP);
+        if (newStackSize > oldStackSize)
+            frame.pop(newStackSize - oldStackSize);
     }
 
     private void emitIF_ICMPCOND(String op, Frame frame) {

@@ -77,6 +77,8 @@ public final class JVM {
       INEG = "ineg",
       IXOR = "ixor",
       WIDE = "wide", // not supported by Jasmin
+      IAND = "iand",
+      IOR = "ior",
 
       // Loading and storing instructions
       GETSTATIC = "getstatic",

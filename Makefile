@@ -69,9 +69,12 @@ emmiter: compile
 		echo "============Checking $$i============"; \
 		b=$${i%.vc};  \
 		n=$${b#$$p}; \
-		java -cp ~/cs3131/target VC.vc $$n.vc; \
-		diff $$n.j $$n.sol; \
+		echo "=== test program === " > $$n.out; \
+		cat $$n.vc >> $$n.out; \
+		java -cp ~/cs3131/target VC.vc $$n.vc >> $$n.out; \
 		jasmin -d ~/cs3131/target $$n.j; \
+		java -cp ~/cs3131/target $$n >> $$n.out; \
+		diff $$n.out $$n.sol; \
 	done
 
 .PHONY: compile

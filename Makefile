@@ -14,8 +14,9 @@ compile: clean
 
 clean:
 	find target -iname "*.class" -delete
-	find src -iname "*.out" -delete
-	find src -iname "*.j" -delete
+	find . -iname "*.out" -delete
+	find . -iname "*.j" -delete
+	find . -iname "*.zip" -delete
 
 # run
 scanner: compile
@@ -73,10 +74,10 @@ emmiter: compile
 		echo "=== test program === " > $$n.out; \
 		cat $$n.vc >> $$n.out; \
 		printf "\n" >> $$n.out; \
-		java -cp ~/cs3131/target VC.vc $$n.vc >> $$n.out; \
-		jasmin -d ~/cs3131/target $$n.j; \
+		java -cp ../../../target VC.vc $$n.vc >> $$n.out; \
+		jasmin -d ../../../target $$n.j; \
 		printf "\n=== The output of the test program === \n" >> $$n.out; \
-		java -cp ~/cs3131/target $$n >> $$n.out; \
+		java -cp ../../../target $$n >> $$n.out; \
 		diff $$n.out $$n.sol; \
 	done
 

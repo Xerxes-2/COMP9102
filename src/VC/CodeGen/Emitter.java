@@ -337,14 +337,12 @@ public final class Emitter implements Visitor {
 
         ast.E2.visit(this, o);
 
-        if (ast.parent instanceof AssignExpr) {
-            if (ast.E1 instanceof ArrayExpr) {
-                emit(JVM.DUP_X2);
-            } else {
-                emit(JVM.DUP);
-            }
-            frame.push();
+        if (ast.E1 instanceof ArrayExpr) {
+            emit(JVM.DUP_X2);
+        } else {
+            emit(JVM.DUP);
         }
+        frame.push();
 
         if (ast.E1 instanceof ArrayExpr) {
             emitArraySTORE(ast.E2, frame);
@@ -466,54 +464,77 @@ public final class Emitter implements Visitor {
     public Object visitBinaryExpr(BinaryExpr ast, Object o) {
         Frame frame = (Frame) o;
         ast.E1.visit(this, o);
-        ast.E2.visit(this, o);
         switch (ast.O.spelling) {
             case "i&&":
-                emit(JVM.IAND);
-                frame.pop(2);
-                frame.push();
+                String labelCalc = frame.getNewLabel();
+                String labelEnd = frame.getNewLabel();
+
+                emit(JVM.IFNE, labelCalc);
+                frame.pop();
+                emit(JVM.ICONST_0);
+                emit(JVM.GOTO, labelEnd);
+
+                emit(labelCalc + ":");
+                ast.E2.visit(this, o);
+                emit(labelEnd + ":");
                 break;
             case "i*":
+                ast.E2.visit(this, o);
                 emit(JVM.IMUL);
                 frame.pop(2);
                 frame.push();
                 break;
             case "i||":
-                emit(JVM.IOR);
-                frame.pop(2);
-                frame.push();
+                String labelCalc2 = frame.getNewLabel();
+                String labelEnd2 = frame.getNewLabel();
+
+                emit(JVM.IFEQ, labelCalc2);
+                frame.pop();
+                emit(JVM.ICONST_1);
+                emit(JVM.GOTO, labelEnd2);
+
+                emit(labelCalc2 + ":");
+                ast.E2.visit(this, o);
+                emit(labelEnd2 + ":");
                 break;
             case "i+":
+                ast.E2.visit(this, o);
                 emit(JVM.IADD);
                 frame.pop(2);
                 frame.push();
                 break;
             case "i-":
+                ast.E2.visit(this, o);
                 emit(JVM.ISUB);
                 frame.pop(2);
                 frame.push();
                 break;
             case "i/":
+                ast.E2.visit(this, o);
                 emit(JVM.IDIV);
                 frame.pop(2);
                 frame.push();
                 break;
             case "f+":
+                ast.E2.visit(this, o);
                 emit(JVM.FADD);
                 frame.pop(2);
                 frame.push();
                 break;
             case "f-":
+                ast.E2.visit(this, o);
                 emit(JVM.FSUB);
                 frame.pop(2);
                 frame.push();
                 break;
             case "f*":
+                ast.E2.visit(this, o);
                 emit(JVM.FMUL);
                 frame.pop(2);
                 frame.push();
                 break;
             case "f/":
+                ast.E2.visit(this, o);
                 emit(JVM.FDIV);
                 frame.pop(2);
                 frame.push();
@@ -524,6 +545,7 @@ public final class Emitter implements Visitor {
             case "i>=":
             case "i==":
             case "i!=":
+                ast.E2.visit(this, o);
                 emitICMP(ast.O.spelling, frame);
                 break;
             case "f<":
@@ -532,6 +554,7 @@ public final class Emitter implements Visitor {
             case "f>=":
             case "f==":
             case "f!=":
+                ast.E2.visit(this, o);
                 emitFCMP(ast.O.spelling, frame);
                 break;
             default:
@@ -547,25 +570,22 @@ public final class Emitter implements Visitor {
         switch (ast.O.spelling) {
             case "i2f":
                 emit(JVM.I2F);
-                frame.pop();
-                frame.push();
                 break;
             case "i-":
                 emit(JVM.INEG);
-                frame.pop();
-                frame.push();
                 break;
             case "f-":
                 emit(JVM.FNEG);
-                frame.pop();
-                frame.push();
                 break;
             case "i!":
-                emit(JVM.ICONST_1);
-                frame.push();
-                emit(JVM.IXOR);
-                frame.pop(2);
-                frame.push();
+                String falseLabel = frame.getNewLabel();
+                String exitLabel = frame.getNewLabel();
+                emit(JVM.IFNE, falseLabel);
+                emitICONST(1);
+                emit("goto", exitLabel);
+                emit(falseLabel + ":");
+                emitICONST(0);
+                emit(exitLabel + ":");
                 break;
             case "f+":
             case "i+":

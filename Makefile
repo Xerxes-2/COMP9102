@@ -8,13 +8,14 @@ SHELL=/usr/bin/bash
 # sources
 JAVA_SOURCES := $(shell find src -name "*.java")
 
-compile:
+compile: clean
 	javac -d target ${JAVA_SOURCES}
 
 
 clean:
 	find target -iname "*.class" -delete
 	find src -iname "*.out" -delete
+	find src -iname "*.j" -delete
 
 # run
 scanner: compile
@@ -65,14 +66,16 @@ checker: compile
 emmiter: compile
 	p=src/VC/CodeGen/; \
 	cd $$p; \
-	for i in ${EMMITER_VC}; do \
+	for i in test[0-9]*.vc; do \
 		echo "============Checking $$i============"; \
 		b=$${i%.vc};  \
 		n=$${b#$$p}; \
 		echo "=== test program === " > $$n.out; \
 		cat $$n.vc >> $$n.out; \
+		printf "\n" >> $$n.out; \
 		java -cp ~/cs3131/target VC.vc $$n.vc >> $$n.out; \
 		jasmin -d ~/cs3131/target $$n.j; \
+		printf "\n=== The output of the test program === \n" >> $$n.out; \
 		java -cp ~/cs3131/target $$n >> $$n.out; \
 		diff $$n.out $$n.sol; \
 	done

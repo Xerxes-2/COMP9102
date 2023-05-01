@@ -128,7 +128,10 @@ public final class Checker implements Visitor {
     ident.visit(this, null);
   }
 
-  private UnaryExpr typeCoercionsI2F(Expr intExpr) {
+  private Expr typeCoercionsI2F(Expr intExpr) {
+    if (!intExpr.type.isIntType()) {
+      return intExpr;
+    }
     Operator op = new Operator("i2f", dummyPos);
     UnaryExpr eAST = new UnaryExpr(op, intExpr, dummyPos);
     eAST.type = StdEnvironment.floatType;
@@ -233,8 +236,12 @@ public final class Checker implements Visitor {
       if (ast.T.isArrayType()) {
         if (ast.E.type != null)
           reporter.reportError(errMesg[15] + ": %", ast.I.spelling, ast.E.position);
-      } else if (!ast.T.assignable(ast.E.type) && ast.E.type != null)
-        reporter.reportError(errMesg[6], "", ast.position);
+      } else {
+        if (!ast.T.assignable(ast.E.type) && ast.E.type != null)
+          reporter.reportError(errMesg[6], "", ast.position);
+        else if (ast.T.isFloatType() && ast.E.type.isIntType())
+          ast.E = typeCoercionsI2F(ast.E);
+      }
     } else if (ast.T.isArrayType() && ((ArrayType) ast.T).E.isEmptyExpr()) {
       reporter.reportError(errMesg[18] + ": %", ast.I.spelling, ast.I.position);
     }
@@ -585,7 +592,7 @@ public final class Checker implements Visitor {
   public Object visitAssignExpr(AssignExpr ast, Object o) {
     Type lhsType = (Type) ast.E1.visit(this, null);
     Type rhsType = (Type) ast.E2.visit(this, null);
-    ast.type = rhsType;
+    ast.type = lhsType;
 
     if (lhsType.assignable(rhsType)) {
       if (lhsType.isFloatType() && rhsType.isIntType())
